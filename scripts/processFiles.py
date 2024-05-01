@@ -37,10 +37,10 @@ def find_top_matches(title, selftext, threshold=80):
             words = text.split()
             for word in words:
                 for supplement in supplements:
-                    supplement_names_to_match = [supplement] + supplement_aliases[supplement]
+                    supplement_names_to_match = [supplement] + supplement_aliases.get(supplement, [])
                     for supplement_name_to_match in supplement_names_to_match:
                         ratio = fuzz.ratio(word, supplement_name_to_match)
-                        if ratio >= threshold:
+                        if ratio >= threshold: 
                             matches.add(supplement)
     return list(matches)  # Returns a list of matching supplements
 
@@ -137,6 +137,8 @@ def processFile(path: str):
 
     last_processed_row = load_latest_processed_row_if_exists()
     for i, (lineLength, row) in enumerate(jsonStream):
+        if i > 200:
+            break
         if last_processed_row is not None and i <= last_processed_row:
             logger.debug(f"Skipping row {i} as it has already been processed")
             continue

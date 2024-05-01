@@ -3,7 +3,7 @@ import logging
 import json
 version = sys.version_info
 if version.major < 3 or (version.major == 3 and version.minor < 10):
-	raise RuntimeError("This script requires Python 3.10 or higher")
+    raise RuntimeError("This script requires Python 3.10 or higher")
 import os
 from collections import defaultdict
 from typing import Any, Iterable
@@ -28,15 +28,6 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-# Unused
-def write_to_jsonl_file(filename, key, data):
-    if not os.path.exists(filename):
-        open(filename, "w").close()  # Create an empty file if it doesn't exist
-
-    with open(filename, "a") as f:
-        f.write(json.dumps({key: data}) + "\n")
-# --
-
 def find_top_match(title, threshold=80):
     words = title.split()
     best_match = None
@@ -46,32 +37,29 @@ def find_top_match(title, threshold=80):
         for supplement in supplements:
             supplement_names_to_match = [supplement] + supplement_aliases[supplement]
             for supplement_name_to_match in supplement_names_to_match:
-            	ratio = fuzz.ratio(word, supplement_name_to_match)
+                ratio = fuzz.ratio(word, supplement_name_to_match)
                 if ratio >= threshold and ratio > best_ratio:
                     best_match = supplement
                     best_ratio = ratio
-
+    logger.debug(f"Best match found: {best_match} with ratio {best_ratio}")
     return best_match  # Can return None if no match found 
 
 def processRow(row: dict[str, Any], i: int):
-    # Initialize a dictionary to store the desired fields
+    logger.debug(f"Processing row {i}")
     row_data = {}
-    
-	# skip if post is not about a supplement we know or there are no comments
     title = row.get("title")
     if title is not None:
         row_data["title"] = title
-          
-	# todo: store in any supplement that exceed ratio
     supplement = find_top_match(title)
     if not supplement:
+        logger.debug(f"No supplement match found for row {i}")
         return
     
     num_comments = row.get("num_comments")
     if num_comments is not None and num_comments <= 1:
+        logger.debug(f"Skipping row {i} due to insufficient comments")
         return
 
-    # Extract desired fields and add them to the dictionary if they exist
     author = row.get("author")
     if author is not None:
         row_data["author"] = author
@@ -100,69 +88,70 @@ def processRow(row: dict[str, Any], i: int):
     if subreddit_id is not None:
         row_data["subreddit_id"] = subreddit_id
 
-    # Write the row data to the JSONL file in cloud storage
-    write_to_gcs_bucket(f"{supplement}-posts.jsonl", i, row_data+"\n")
-	
+    write_to_gcs_bucket(f"{supplement}-posts.jsonl", i, row_data)
+    logger.debug(f"Row {i} data written to cloud storage")
+
 def write_to_gcs_bucket(filename, row_num, data):
-    # Authenticate with Google Cloud Storage
     storage_client = storage.Client()
-
     file_path = f"misc_tests/posts/{filename}"
-
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(file_path)
 
     if blob.exists():
-        # Append to existing supplement file
         with blob.open(mode="a") as f:
-            f.write(data.encode("utf-8"))
+            f.write(json.dumps(data).encode("utf-8"))
     else:
-    	# Write new supplement file
-        blob.upload_from_string(json.dumps({data}) + "\n", content_type="application/json")
-    print(f"Data written to {file_path} in bucket {bucket_name}")
+        blob.upload_from_string(json.dumps(data) + "\n", content_type="application/json")
+    logger.debug(f"Data for row {row_num} written to {file_path} in bucket {bucket_name}")
     
     last_processed_blob = bucket.blob(last_processed_filename)
-    last_processed_row = str(row_num)
-    last_processed_blob.upload_from_string(last_processed_row, content_type='text/plain')
+    last_processed_blob.upload_from_string(str(row_num), content_type='text/plain')
+    logger.debug(f"Updated last processed row to {row_num}")
 
 def load_latest_processed_row_if_exists():
-    # Authenticate with Google Cloud Storage
     storage_client = storage.Client()
-
     bucket = storage_client.bucket(bucket_name)
     last_processed_blob = bucket.blob(last_processed_filename)
 
     if last_processed_blob.exists():
         contents = last_processed_blob.download_as_string().decode('utf-8')
         try:
-            number = int(contents)  # Convert the downloaded string to an integer
+            number = int(contents)
+            logger.debug(f"Loaded last processed row: {number}")
             return number
         except ValueError:
-            print(f"Error: Contents of {last_processed_filename} are not a valid integer.")
+            logger.error(f"Error: Contents of {last_processed_filename} are not a valid integer.")
             return None
+    else:
+        logger.debug("No last processed row found, starting from the beginning.")
+        return None
 
 def processFile(path: str):
-	jsonStream = getFileJsonStream(path)
-	if jsonStream is None:
-		logger.error(f"Skipping unknown file {path}")
-		print(f"Skipping unknown file {path}")
-		return
-     
-	last_processed_row = load_latest_processed_row_if_exists()
-	for i, (lineLength, row) in enumerate(jsonStream):
-		if i > 5:
-			break
-		if last_processed_row >= i:
-			continue
-		processRow(row, i)
+    jsonStream = getFileJsonStream(path)
+    if jsonStream is None:
+        logger.error(f"Skipping unknown file {path}")
+        return
+
+    last_processed_row = load_latest_processed_row_if_exists()
+    for i, (lineLength, row) in enumerate(jsonStream):
+        if last_processed_row is not None and i <= last_processed_row:
+            logger.debug(f"Skipping row {i} as it has already been processed")
+            continue
+        logger.info(f"Processing row {i}")
+        processRow(row, i)
+        if i % 100 == 0:
+            logger.info(f"Processed up to row {i}")
 
 def main():
-	if os.path.isdir(filePath):
-		logger.error("This script should operate on a .zst file, not a directory")
-	else:
-		processFile(filePath)
-	
-	print("Done :>")
-
+    if os.path.isdir(filePath):
+        logger.error("This script should operate on a .zst file, not a directory")
+        return
+    else:
+        logger.info("Starting file processing")
+        processFile(filePath)
+        logger.info("File processing completed")
+        
+        
 if __name__ == "__main__":
-	main()
+    main()
+

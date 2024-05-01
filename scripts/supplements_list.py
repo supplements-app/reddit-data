@@ -557,7 +557,6 @@ supplement_aliases = {
     "Branched-Chain Amino Acids": ["BCAAs"],
     "Coenzyme Q10": ["CoQ10", "Ubiquinone"],
     "Glutathione": ["GSH"],
-    "Caffeine": ["1,3,7-Trimethylxanthine"],
     "Curcumin": ["Turmeric Extract"],
     "Resveratrol": ["Trans-Resveratrol"],
     "Moringa": ["Drumstick Tree"],
@@ -570,11 +569,9 @@ supplement_aliases = {
     "Ginger": ["Zingiber officinale"],
     "Garlic": ["Allium sativum"],
     "Lavender": ["Lavandula"],
-    "Rosemary": ["Rosmarinus officinalis"],
-    "Peppermint": ["Mentha piperita"],
     "Saffron": ["Crocus sativus"],
-    "Cinnamon": ["Cinnamomum"],
     "Chamomile": ["Matricaria chamomilla"],
     "Licorice": ["Glycyrrhiza glabra"],
-    "Aloe Vera": ["Aloe barbadensis miller"]
+    "Aloe Vera": ["Aloe barbadensis miller"],
+    "Conjugated Linoleic Acid": ["CLA"],
 }

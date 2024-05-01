@@ -55,9 +55,9 @@ def processRow(row: dict[str, Any], i: int):
     if selftext is not None:
         row_data["selftext"] = selftext
 
-    supplements = find_top_matches(title, selftext)
+    found_supplements = find_top_matches(title, selftext)
 
-    if not supplements:
+    if not found_supplements:
         logger.debug(f"No supplement match found for row {i}")
         return
 
@@ -74,9 +74,9 @@ def processRow(row: dict[str, Any], i: int):
     if created_utc is not None:
         row_data["created_utc"] = created_utc
 
-    submission_id = row.get("id")
-    if submission_id is not None:
-        row_data["id"] = submission_id
+    post_id = row.get("id")
+    if post_id is not None:
+        row_data["id"] = post_id
 
     permalink = row.get("permalink")
     if permalink is not None:
@@ -90,26 +90,21 @@ def processRow(row: dict[str, Any], i: int):
     if subreddit_id is not None:
         row_data["subreddit_id"] = subreddit_id
 
-    for supplement in supplements:
-        write_to_gcs_bucket(f"{subreddit_id}-{supplement}-posts.jsonl", i, row_data)
+    for supplement in found_supplements:
+        write_to_gcs_bucket(subreddit_id, supplement, post_id, row_data)
         logger.debug(f"Row {i} data written to cloud storage for supplement {supplement}")
 
-def write_to_gcs_bucket(filename, row_num, data):
+def write_to_gcs_bucket(subreddit_id, supplement, post_id, data):
     storage_client = storage.Client()
-    file_path = f"misc_tests/posts/{filename}"
+    folder_name = f"{subreddit_id}-{supplement}-posts"
+    file_name = f"{post_id}.json"
+    file_path = f"misc_tests/posts/{folder_name}/{file_name}"
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(file_path)
 
-    if blob.exists():
-        with blob.open(mode="a") as f:
-            f.write(json.dumps(data).encode("utf-8"))
-    else:
-        blob.upload_from_string(json.dumps(data) + "\n", content_type="application/json")
-    logger.debug(f"Data for row {row_num} written to {file_path} in bucket {bucket_name}")
-    
-    last_processed_blob = bucket.blob(last_processed_filename)
-    last_processed_blob.upload_from_string(str(row_num), content_type='text/plain')
-    logger.debug(f"Updated last processed row to {row_num}")
+    # Upload the data as a JSON string
+    blob.upload_from_string(json.dumps(data) + "\n", content_type="application/json")
+    logger.debug(f"Data for post {post_id} written to {file_path} in bucket {bucket_name}")
 
 def load_latest_processed_row_if_exists():
     storage_client = storage.Client()

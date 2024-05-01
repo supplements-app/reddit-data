@@ -28,21 +28,21 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-def find_top_match(title, threshold=80):
-    words = title.split()
-    best_match = None
-    best_ratio = 0
+def find_top_matches(title, selftext, threshold=80):
+    texts = [title, selftext]
+    matches = set()
 
-    for word in words:
-        for supplement in supplements:
-            supplement_names_to_match = [supplement] + supplement_aliases[supplement]
-            for supplement_name_to_match in supplement_names_to_match:
-                ratio = fuzz.ratio(word, supplement_name_to_match)
-                if ratio >= threshold and ratio > best_ratio:
-                    best_match = supplement
-                    best_ratio = ratio
-    logger.debug(f"Best match found: {best_match} with ratio {best_ratio}")
-    return best_match  # Can return None if no match found 
+    for text in texts:
+        if text:
+            words = text.split()
+            for word in words:
+                for supplement in supplements:
+                    supplement_names_to_match = [supplement] + supplement_aliases[supplement]
+                    for supplement_name_to_match in supplement_names_to_match:
+                        ratio = fuzz.ratio(word, supplement_name_to_match)
+                        if ratio >= threshold:
+                            matches.add(supplement)
+    return list(matches)  # Returns a list of matching supplements
 
 def processRow(row: dict[str, Any], i: int):
     logger.debug(f"Processing row {i}")
@@ -50,11 +50,17 @@ def processRow(row: dict[str, Any], i: int):
     title = row.get("title")
     if title is not None:
         row_data["title"] = title
-    supplement = find_top_match(title)
-    if not supplement:
+
+    selftext = row.get("selftext")
+    if selftext is not None:
+        row_data["selftext"] = selftext
+
+    supplements = find_top_matches(title, selftext)
+
+    if not supplements:
         logger.debug(f"No supplement match found for row {i}")
         return
-    
+
     num_comments = row.get("num_comments")
     if num_comments is not None and num_comments <= 1:
         logger.debug(f"Skipping row {i} due to insufficient comments")
@@ -67,10 +73,6 @@ def processRow(row: dict[str, Any], i: int):
     created_utc = row.get("created_utc")
     if created_utc is not None:
         row_data["created_utc"] = created_utc
-
-    selftext = row.get("selftext")
-    if selftext is not None:
-        row_data["selftext"] = selftext
 
     submission_id = row.get("id")
     if submission_id is not None:
@@ -88,8 +90,9 @@ def processRow(row: dict[str, Any], i: int):
     if subreddit_id is not None:
         row_data["subreddit_id"] = subreddit_id
 
-    write_to_gcs_bucket(f"{supplement}-posts.jsonl", i, row_data)
-    logger.debug(f"Row {i} data written to cloud storage")
+    for supplement in supplements:
+        write_to_gcs_bucket(f"{subreddit_id}-{supplement}-posts.jsonl", i, row_data)
+        logger.debug(f"Row {i} data written to cloud storage for supplement {supplement}")
 
 def write_to_gcs_bucket(filename, row_num, data):
     storage_client = storage.Client()

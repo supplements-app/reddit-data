@@ -11,26 +11,28 @@ from google.cloud import storage
 from supplements_list import supplements, supplement_aliases
 from fileStreams import getFileJsonStream
 from thefuzz import fuzz
+from logging.handlers import RotatingFileHandler
 
 filePath = "/Users/ronit/Desktop/projects/arctic_shift/raw_reddit_dumps_Supplements_submissions.zst"
 recursive = False
 
 # cloud storage config
 bucket_name = 'supplements_app_storage'
-last_processed_filename = 'misc_tests/posts/last_processed.txt'
+last_processed_filename = 'filtered_raw_posts/last_processed.txt'
 
 # logger config
 logger = logging.getLogger('processFiles')
 logger.setLevel(logging.DEBUG)
-file_handler = logging.FileHandler('processFiles.log')
+file_handler = RotatingFileHandler('processingPosts.log', maxBytes=1024*1024*5, backupCount=5)
 file_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-def find_top_matches(title, selftext, threshold=80):
+def find_top_match(title, selftext, threshold=80):
     texts = [title, selftext]
-    matches = set()
+    top_match = None
+    best_ratio = 0
 
     for text in texts:
         if text:
@@ -40,9 +42,10 @@ def find_top_matches(title, selftext, threshold=80):
                     supplement_names_to_match = [supplement] + supplement_aliases.get(supplement, [])
                     for supplement_name_to_match in supplement_names_to_match:
                         ratio = fuzz.ratio(word, supplement_name_to_match)
-                        if ratio >= threshold: 
-                            matches.add(supplement)
-    return list(matches)  # Returns a list of matching supplements
+                        if ratio >= threshold and ratio >= best_ratio: 
+                            top_match = supplement
+                            best_ratio = ratio
+    return top_match # Returns a list of matching supplements
 
 def processRow(row: dict[str, Any], i: int):
     logger.debug(f"Processing row {i}")
@@ -55,9 +58,9 @@ def processRow(row: dict[str, Any], i: int):
     if selftext is not None:
         row_data["selftext"] = selftext
 
-    found_supplements = find_top_matches(title, selftext)
+    found_supplement = find_top_match(title, selftext)
 
-    if not found_supplements:
+    if not found_supplement:
         logger.debug(f"No supplement match found for row {i}")
         return
 
@@ -90,21 +93,26 @@ def processRow(row: dict[str, Any], i: int):
     if subreddit_id is not None:
         row_data["subreddit_id"] = subreddit_id
 
-    for supplement in found_supplements:
-        write_to_gcs_bucket(subreddit_id, supplement, post_id, row_data)
-        logger.debug(f"Row {i} data written to cloud storage for supplement {supplement}")
 
-def write_to_gcs_bucket(subreddit_id, supplement, post_id, data):
+    write_to_gcs_bucket(subreddit_id, found_supplement, post_id, row_data, i)
+    logger.debug(f"Row {i} data written to cloud storage for supplement {found_supplement}")
+
+def write_to_gcs_bucket(subreddit_id, supplement, post_id, data, last_processed_row):
     storage_client = storage.Client()
     folder_name = f"{subreddit_id}-{supplement}-posts"
     file_name = f"{post_id}.json"
-    file_path = f"misc_tests/posts/{folder_name}/{file_name}"
+    file_path = f"filtered_raw_posts/{folder_name}/{file_name}"
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(file_path)
 
     # Upload the data as a JSON string
     blob.upload_from_string(json.dumps(data) + "\n", content_type="application/json")
     logger.debug(f"Data for post {post_id} written to {file_path} in bucket {bucket_name}")
+    
+	# Write the last processed row
+    last_processed_blob = bucket.blob(last_processed_filename)
+    last_processed_blob.upload_from_string(str(last_processed_row), content_type='text/plain')
+    logger.debug(f"Updated last processed row to {last_processed_row}")
 
 def load_latest_processed_row_if_exists():
     storage_client = storage.Client()
@@ -132,7 +140,7 @@ def processFile(path: str):
 
     last_processed_row = load_latest_processed_row_if_exists()
     for i, (lineLength, row) in enumerate(jsonStream):
-        if i > 200:
+        if i > 10000:
             break
         if last_processed_row is not None and i <= last_processed_row:
             logger.debug(f"Skipping row {i} as it has already been processed")
@@ -143,6 +151,13 @@ def processFile(path: str):
             logger.info(f"Processed up to row {i}")
 
 def main():
+    global filePath
+    # get filename from command line parameter
+    if len(sys.argv) < 1:
+        logger.error("No file path provided")
+        sys.exit(1)       
+    filePath = sys.argv[1]
+    
     if os.path.isdir(filePath):
         logger.error("This script should operate on a .zst file, not a directory")
         return

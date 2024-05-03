@@ -13,6 +13,7 @@ from fileStreams import getFileJsonStream
 from thefuzz import fuzz
 from logging.handlers import RotatingFileHandler
 
+
 filePath = "/Users/ronit/Desktop/projects/arctic_shift/raw_reddit_dumps_Supplements_submissions.zst"
 recursive = False
 
@@ -92,7 +93,6 @@ def processRow(row: dict[str, Any], i: int):
     subreddit_id = row.get("subreddit_id")
     if subreddit_id is not None:
         row_data["subreddit_id"] = subreddit_id
-
 
     write_to_gcs_bucket(subreddit_id, found_supplement, post_id, row_data, i)
     logger.debug(f"Row {i} data written to cloud storage for supplement {found_supplement}")

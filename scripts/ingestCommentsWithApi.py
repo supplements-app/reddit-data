@@ -103,14 +103,14 @@ def main(bucket_name, base_folder):
         processed_blob.upload_from_string("")
         processed_folders = set()
 
-    
     for index, folder_name in enumerate(folders):
         if folder_name not in processed_folders:
             logging.info(f"Processing folder {index}: {folder_name}")
             process_folder(bucket_name, folder_name, processed_file_path, index, num_folders)
             logging.info(f"Processed {index} of {num_folders} folders")
             # Append the processed folder name to the processed.txt in the bucket
-            processed_blob.upload_from_string(f"{folder_name}\n", content_type='text/plain')
+            processed_folders.add(folder_name)
+            processed_blob.upload_from_string("\n".join(processed_folders), content_type='text/plain')
         else:
             logging.info(f"Skipping already processed folder: {folder_name}")
 

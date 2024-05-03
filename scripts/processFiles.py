@@ -5,6 +5,8 @@ version = sys.version_info
 if version.major < 3 or (version.major == 3 and version.minor < 10):
     raise RuntimeError("This script requires Python 3.10 or higher")
 import os
+import time
+import random
 from collections import defaultdict
 from typing import Any, Iterable
 from google.cloud import storage
@@ -28,6 +30,23 @@ file_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
+
+
+def exponential_backoff(retries=5, base_sleep_time=0.1, max_sleep_time=5):
+    """Utility function to retry operations with exponential backoff."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    sleep_time = min(max_sleep_time, base_sleep_time * 2 ** i)
+                    time.sleep(sleep_time + random.uniform(0, 0.1))  # Adding jitter
+                    if i == retries - 1:
+                        raise
+                    logger.error(f"Retry {i + 1} for function {func.__name__} due to error: {e}")
+        return wrapper
+    return decorator
 
 def find_top_match(title, selftext, threshold=80):
     texts = [title, selftext]
@@ -97,6 +116,7 @@ def processRow(row: dict[str, Any], i: int):
     write_to_gcs_bucket(subreddit_id, found_supplement, post_id, row_data, i)
     logger.debug(f"Row {i} data written to cloud storage for supplement {found_supplement}")
 
+@exponential_backoff()
 def write_to_gcs_bucket(subreddit_id, supplement, post_id, data, last_processed_row):
     storage_client = storage.Client()
     folder_name = f"{subreddit_id}-{supplement}-posts"
@@ -110,10 +130,12 @@ def write_to_gcs_bucket(subreddit_id, supplement, post_id, data, last_processed_
     logger.debug(f"Data for post {post_id} written to {file_path} in bucket {bucket_name}")
     
 	# Write the last processed row
-    last_processed_blob = bucket.blob(last_processed_filename)
-    last_processed_blob.upload_from_string(str(last_processed_row), content_type='text/plain')
-    logger.debug(f"Updated last processed row to {last_processed_row}")
+    if last_processed_row % 500:
+        last_processed_blob = bucket.blob(last_processed_filename)
+        last_processed_blob.upload_from_string(str(last_processed_row), content_type='text/plain')
+        logger.debug(f"Updated last processed row to {last_processed_row}")
 
+@exponential_backoff()
 def load_latest_processed_row_if_exists():
     storage_client = storage.Client()
     bucket = storage_client.bucket(bucket_name)
@@ -140,13 +162,12 @@ def processFile(path: str):
 
     last_processed_row = load_latest_processed_row_if_exists()
     for i, (lineLength, row) in enumerate(jsonStream):
-        if i > 10000:
-            break
         if last_processed_row is not None and i <= last_processed_row:
             logger.debug(f"Skipping row {i} as it has already been processed")
             continue
         logger.info(f"Processing row {i}")
         processRow(row, i)
+        time.sleep(0.1)
         if i % 100 == 0:
             logger.info(f"Processed up to row {i}")
 

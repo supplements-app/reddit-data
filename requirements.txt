@@ -1,3 +1,11 @@
 google-cloud-storage
 thefuzz
 zstandard
+python-dotenv
+langchain
+replicate
+langsmith
+langchain-core
+langchain-openai
+google-cloud-storage
+logging

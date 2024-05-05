@@ -16,7 +16,7 @@ from thefuzz import fuzz
 from logging.handlers import RotatingFileHandler
 
 
-filePath = "/Users/ronit/Desktop/projects/arctic_shift/raw_reddit_dumps_Supplements_submissions.zst"
+filePath = "/Users/ronit/Desktop/projects/arctic_shift/raw_reddit_dumps_Nootropics_submissions.zst"
 recursive = False
 
 # cloud storage config
@@ -130,7 +130,7 @@ def write_to_gcs_bucket(subreddit_id, supplement, post_id, data, last_processed_
     logger.debug(f"Data for post {post_id} written to {file_path} in bucket {bucket_name}")
     
 	# Write the last processed row
-    if last_processed_row % 500:
+    if last_processed_row % 500 == 0:
         last_processed_blob = bucket.blob(last_processed_filename)
         last_processed_blob.upload_from_string(str(last_processed_row), content_type='text/plain')
         logger.debug(f"Updated last processed row to {last_processed_row}")

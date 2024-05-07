@@ -2,8 +2,6 @@ import json
 import requests
 import logging
 from google.cloud import storage
-import os
-from dotenv import load_dotenv
 import time
 from requests.exceptions import RequestException
 from logging.handlers import RotatingFileHandler
@@ -17,8 +15,6 @@ file_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
-
-load_dotenv()
 
 BASE_URL = 'https://arctic-shift.photon-reddit.com'
 
@@ -85,7 +81,7 @@ def process_folder(bucket_name, folder_name, processed_file_path, cur_folder_num
             post_id = blob.name.split('/')[-1].split('.')[0]
             logger.info(f"Processing post ID: {post_id}")
             comments = fetch_comments(post_id)
-            if comments is None or len(comments) <= 1:
+            if comments is None or len(comments['data']) <= 1:
                 logger.error(f"Failed to fetch comments for post ID: {post_id}")
                 continue
             processed_comments = process_comments(comments['data'])

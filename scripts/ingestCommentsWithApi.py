@@ -6,11 +6,17 @@ import os
 from dotenv import load_dotenv
 import time
 from requests.exceptions import RequestException
+from logging.handlers import RotatingFileHandler
+
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# TODO: log to a file
+logger = logging.getLogger('ingestCommentsWithApi')
+logger.setLevel(logging.DEBUG)
+file_handler = RotatingFileHandler('ingestingComments.log', maxBytes=1024*1024*5, backupCount=5)
+file_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 load_dotenv()
 
@@ -30,13 +36,16 @@ def fetch_comments(link_id):
             response.raise_for_status()  # Raise an exception for HTTP error responses
             return response.json()
         except RequestException as e:
-            logging.warning(f"Attempt {attempt + 1} failed: {e}")
+            logger.warning(f"Attempt {attempt + 1} failed: {e}")
             delay *= backoff_factor
         except json.JSONDecodeError:
-            logging.error("Failed to decode JSON from response.")
+            logger.error("Failed to decode JSON from response.")
+            break
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
             break
 
-    logging.error("API request failed after retries.")
+    logger.error("API request failed after retries.")
     return None  # Return None or handle it as per your application's error handling policy
 
 def extract_relevant_data(comment):
@@ -49,9 +58,8 @@ def process_comments(comments):
     processed = []
     for comment in comments:
         processed_comment = extract_relevant_data(comment['data'])
-        replies = comment.get('replies', [])
-        if replies:
-            processed_comment['replies'] = process_comments(replies)
+        if processed_comment['body'] == '[deleted]':
+            continue
         processed.append(processed_comment)
     return processed
 
@@ -62,7 +70,7 @@ def write_to_jsonl(bucket_name, output_folder, post_id, data):
     blob = bucket.blob(f"filtered_raw_comments/{output_folder}/{post_id}.jsonl")
     output_lines = [json.dumps(comment) for comment in data]
     blob.upload_from_string("\n".join(output_lines))
-    logging.info(f"Data written to /filtered_raw_comments/{output_folder}/{post_id}.jsonl")
+    logger.info(f"Data written to /filtered_raw_comments/{output_folder}/{post_id}.jsonl")
 
 def process_folder(bucket_name, folder_name, processed_file_path, cur_folder_num, total_folders):
     """Process each JSON file in the folder."""
@@ -75,14 +83,14 @@ def process_folder(bucket_name, folder_name, processed_file_path, cur_folder_num
     for index, blob in enumerate(blobs):
         if blob.name.endswith('.json'):
             post_id = blob.name.split('/')[-1].split('.')[0]
-            logging.info(f"Processing post ID: {post_id}")
+            logger.info(f"Processing post ID: {post_id}")
             comments = fetch_comments(post_id)
-            if comments is None:
-                logging.error(f"Failed to fetch comments for post ID: {post_id}")
-                break
+            if comments is None or len(comments) <= 1:
+                logger.error(f"Failed to fetch comments for post ID: {post_id}")
+                continue
             processed_comments = process_comments(comments['data'])
             write_to_jsonl(bucket_name, output_folder, post_id, processed_comments)
-            logging.info(f"Processed {index} of {num_blobs} posts in folder {cur_folder_num} of {total_folders}")
+            logger.info(f"Processed {index} of {num_blobs} posts in folder {cur_folder_num} of {total_folders}")
 
 def main(bucket_name, base_folder):
     """Main function to process all subfolders in the base folder."""
@@ -105,14 +113,14 @@ def main(bucket_name, base_folder):
 
     for index, folder_name in enumerate(folders):
         if folder_name not in processed_folders:
-            logging.info(f"Processing folder {index}: {folder_name}")
+            logger.info(f"Processing folder {index}: {folder_name}")
             process_folder(bucket_name, folder_name, processed_file_path, index, num_folders)
-            logging.info(f"Processed {index} of {num_folders} folders")
+            logger.info(f"Processed {index} of {num_folders} folders")
             # Append the processed folder name to the processed.txt in the bucket
             processed_folders.add(folder_name)
             processed_blob.upload_from_string("\n".join(processed_folders), content_type='text/plain')
         else:
-            logging.info(f"Skipping already processed folder: {folder_name}")
+            logger.info(f"Skipping already processed folder: {folder_name}")
 
 
 input_bucket_name = 'supplements_app_storage'

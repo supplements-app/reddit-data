@@ -45,8 +45,8 @@ def create_comment_summaries_collection_if_not_exists():
                 Property(name="summary", data_type=DataType.TEXT, description="The summary of the comment"),
                 Property(name="created_utc", data_type=DataType.INT, skip_vectorization=True, description="The UTC timestamp of the comment creation"),
                 Property(name="subreddit_id", data_type=DataType.TEXT, skip_vectorization=True, description="The ID of the subreddit"),
-                Property(name="link_id", data_type=DataType.TEXT, description="The link ID associated with the comment"),
-                Property(name="score", data_type=DataType.INT, description="The score of the comment")
+                Property(name="link_id", data_type=DataType.TEXT, skip_vectorization=True, description="The link ID associated with the comment"),
+                Property(name="score", data_type=DataType.INT, skip_vectorization=True, description="The score of the comment")
             ]
         )
 

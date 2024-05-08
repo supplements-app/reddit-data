@@ -1,3 +1,4 @@
+from http.client import RemoteDisconnected
 import json
 import requests
 import logging
@@ -68,6 +69,33 @@ def write_to_jsonl(bucket_name, output_folder, post_id, data):
     blob.upload_from_string("\n".join(output_lines))
     logger.info(f"Data written to /filtered_raw_comments/{output_folder}/{post_id}.jsonl")
 
+
+def write_to_jsonl(bucket_name, output_folder, post_id, data):
+    """Write processed data to a JSONL file in GCS with retries."""
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(f"filtered_raw_comments/{output_folder}/{post_id}.jsonl")
+    output_lines = [json.dumps(comment) for comment in data]
+
+    retries = 3
+    backoff_factor = 2
+    delay = 1  # Initial delay
+
+    for attempt in range(retries):
+        try: 
+            blob.upload_from_string("\n".join(output_lines), content_type='text/plain')
+            logger.info(f"Data written to /filtered_raw_comments/{output_folder}/{post_id}.jsonl")
+            break  # Success!
+        except (ConnectionError, RemoteDisconnected) as e:  # Catch relevant errors 
+            logger.warning(f"Upload attempt {attempt + 1} failed: {e}")
+            if attempt < retries - 1:  # Only retry if attempts remain
+                delay *= backoff_factor
+                time.sleep(delay)             
+            else:
+                logger.error(f"Upload failed after retries: /filtered_raw_comments/{output_folder}/{post_id}.jsonl")
+
+
+
 def process_folder(bucket_name, folder_name, processed_file_path, cur_folder_num, total_folders):
     """Process each JSON file in the folder."""
     client = storage.Client()
@@ -81,7 +109,7 @@ def process_folder(bucket_name, folder_name, processed_file_path, cur_folder_num
             post_id = blob.name.split('/')[-1].split('.')[0]
             logger.info(f"Processing post ID: {post_id}")
             comments = fetch_comments(post_id)
-            if comments is None or len(comments['data']) <= 1:
+            if comments is None:
                 logger.error(f"Failed to fetch comments for post ID: {post_id}")
                 continue
             processed_comments = process_comments(comments['data'])

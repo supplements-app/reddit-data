@@ -47,7 +47,7 @@ def fetch_comments(link_id):
 
 def extract_relevant_data(comment):
     """Extract relevant fields from a comment."""
-    fields = ['author', 'body', 'created_utc', 'subreddit_id', 'subreddit', 'controversiality', 'link_id', 'score']
+    fields = ['author', 'id', 'body', 'created_utc', 'subreddit_id', 'subreddit', 'controversiality', 'link_id', 'score']
     return {field: comment[field] for field in fields if field in comment}
 
 def process_comments(comments):
@@ -64,17 +64,17 @@ def write_to_jsonl(bucket_name, output_folder, post_id, data):
     """Write processed data to a JSONL file in GCS."""
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    blob = bucket.blob(f"filtered_raw_comments/{output_folder}/{post_id}.jsonl")
+    blob = bucket.blob(f"filtered_raw_comments-v1/{output_folder}/{post_id}.jsonl")
     output_lines = [json.dumps(comment) for comment in data]
     blob.upload_from_string("\n".join(output_lines))
-    logger.info(f"Data written to /filtered_raw_comments/{output_folder}/{post_id}.jsonl")
+    logger.info(f"Data written to /filtered_raw_comments-v1{output_folder}/{post_id}.jsonl")
 
 
 def write_to_jsonl(bucket_name, output_folder, post_id, data):
     """Write processed data to a JSONL file in GCS with retries."""
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    blob = bucket.blob(f"filtered_raw_comments/{output_folder}/{post_id}.jsonl")
+    blob = bucket.blob(f"filtered_raw_comments-v1/{output_folder}/{post_id}.jsonl")
     output_lines = [json.dumps(comment) for comment in data]
 
     retries = 3
@@ -84,7 +84,7 @@ def write_to_jsonl(bucket_name, output_folder, post_id, data):
     for attempt in range(retries):
         try: 
             blob.upload_from_string("\n".join(output_lines), content_type='text/plain')
-            logger.info(f"Data written to /filtered_raw_comments/{output_folder}/{post_id}.jsonl")
+            logger.info(f"Data written to /filtered_raw_comments-v1/{output_folder}/{post_id}.jsonl")
             break  # Success!
         except (ConnectionError, RemoteDisconnected) as e:  # Catch relevant errors 
             logger.warning(f"Upload attempt {attempt + 1} failed: {e}")
@@ -92,7 +92,7 @@ def write_to_jsonl(bucket_name, output_folder, post_id, data):
                 delay *= backoff_factor
                 time.sleep(delay)             
             else:
-                logger.error(f"Upload failed after retries: /filtered_raw_comments/{output_folder}/{post_id}.jsonl")
+                logger.error(f"Upload failed after retries: /filtered_raw_comments-v1/{output_folder}/{post_id}.jsonl")
 
 
 
@@ -127,7 +127,7 @@ def main(bucket_name, base_folder):
         if len(parts) > 1 and '-posts' in parts[-2]:
             folders.add('/'.join(parts[:-1]))
     num_folders = len(folders)
-    processed_file_path = 'filtered_raw_comments/processed.txt'
+    processed_file_path = 'filtered_raw_comments-v1/processed.txt'
     processed_blob = bucket.blob(processed_file_path)
     try:
         processed_folders = {line.decode('utf-8').strip() for line in processed_blob.download_as_bytes().splitlines()}

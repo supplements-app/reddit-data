@@ -20,6 +20,9 @@ weaviate_client = weaviate.connect_to_wcs(
 storage_client = storage.Client()
 bucket = storage_client.bucket("supplements_app_storage")
 
+# subreddit ids
+subredd_ids = ["t5_2qhb8", "t5_2r81c"]
+
 # logger config
 logger = logging.getLogger('embed_comment_summaries')
 logger.setLevel(logging.DEBUG)
@@ -50,41 +53,64 @@ def create_comment_summaries_collection_if_not_exists():
             ]
         )
 
+def create_raw_comments_collection_if_not_exists():
+    if not weaviate_client.collections.exists("Raw_Comments"): 
+        weaviate_client.collections.create(
+            "Raw_Comments",
+            vectorizer_config=Configure.Vectorizer.text2vec_voyageai(
+                model="voyage-lite-02-instruct",
+                vectorize_collection_name=False
+            ),
+            properties=[  # vectorize every field except supplement and summary
+                Property(name="author", data_type=DataType.TEXT, skip_vectorization=True, description="The author of the comment"),
+                Property(name="body", data_type=DataType.TEXT, description="The body of the comment"),
+                Property(name="supplement", data_type=DataType.TEXT, description="The supplement discussed in the comment"),
+                Property(name="created_utc", data_type=DataType.INT, skip_vectorization=True, description="The UTC timestamp of the comment creation"),
+                Property(name="subreddit_id", data_type=DataType.TEXT, skip_vectorization=True, description="The ID of the subreddit"),
+                Property(name="link_id", data_type=DataType.TEXT, skip_vectorization=True, description="The link ID associated with the comment"),
+                Property(name="score", data_type=DataType.INT, skip_vectorization=True, description="The score of the comment")
+            ]
+        )
+
 def process_comments(): 
     # Uses dynamic batching; weaviate handles how many batches to create
-    with weaviate_client.batch.dynamic() as batch:
-        for supplement in supplements:
-            prefix = f"misc_tests/comment_summaries/{supplement}/"
-            blobs = list(bucket.list_blobs(prefix=prefix))  # Convert to list to check length
-            if not blobs:
-                logger.debug(f"No files found for supplement: {supplement}")
-                continue  # Skip to the next supplement if no blobs are found
+    with weaviate_client.batch.rate_limit(requests_per_minute=250) as batch:
+        for subreddit_id in ["t5_2qhb8"]:
+            for supplement in supplements:
+                if supplement == "Alcohol":
+                    break
 
-            for blob in blobs:
-                blob_content = blob.download_as_string()
-                if blob_content:  # Ensure the comment summary is not empty
-                    comment_json_data = json.loads(blob_content)
-                    comment_object_properties = {
-                        "author": comment_json_data.get("author", "deleted"),
-                        "body": comment_json_data.get("body"),
-                        "supplement": comment_json_data.get("supplement"),
-                        "summary": comment_json_data.get("summary"),
-                        "created_utc": comment_json_data.get("created_utc"),
-                        "subreddit_id": comment_json_data.get("subreddit_id"),
-                        "link_id": comment_json_data.get("link_id"),
-                        "score": comment_json_data.get("score")
-                    }
-                    batch.add_object(collection="Comment_Summaries", properties=comment_object_properties)
-                    logger.debug(f"Added comment summary for supplement {supplement} to batch.")
-                else:
-                    logger.error(f"Empty or invalid content in blob: {blob.name}")
+                prefix = f"filtered_raw_comments/{subreddit_id}-{supplement}-aggregated-comments/"
+                blobs = list(bucket.list_blobs(prefix=prefix))  # Convert to list to check length
+                if not blobs:
+                    logger.debug(f"No files found for supplement: {supplement}")
+                    continue  # Skip to the next supplement if no blobs are found
+
+                for blob in blobs:
+                    blob_content = blob.download_as_string()
+                    if blob_content:  # Ensure the comment summary is not empty
+                        for line in blob_content.splitlines():
+                            comment_json_data = json.loads(line)
+                            comment_object_properties = {
+                                "author": comment_json_data.get("author", "deleted"),
+                                "body": comment_json_data.get("body"),
+                                "supplement": supplement,
+                                "created_utc": comment_json_data.get("created_utc"),
+                                "subreddit_id": comment_json_data.get("subreddit_id"),
+                                "link_id": comment_json_data.get("link_id"),
+                                "score": comment_json_data.get("score")
+                            }
+                            batch.add_object(collection="Raw_Comments", properties=comment_object_properties)
+                            logger.debug(f"Added raw comment for supplement {supplement} to batch.")
+                    else:
+                        logger.error(f"Empty or invalid content in blob: {blob.name}")
     
     # batch submitted
     logger.info("Batch of comment summaries added to Weaviate. Failed Objects: %s", weaviate_client.batch.failed_objects)
 
 if __name__ == "__main__":
     try:
-        create_comment_summaries_collection_if_not_exists()
+        create_raw_comments_collection_if_not_exists()
         process_comments()
     finally:
         weaviate_client.close()

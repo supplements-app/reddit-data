@@ -128,8 +128,6 @@ def process_posts():
     with weaviate_client.batch.rate_limit(requests_per_minute=295) as batch:
         for subreddit_id in subreddit_ids:
             for supplement_index, supplement in enumerate(supplements):
-                if supplement == "Guarana":
-                    break
                 
                 if supplement_index < supplement_index_checkpoint:
                     continue
